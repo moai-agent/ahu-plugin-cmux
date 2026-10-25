@@ -1,77 +1,100 @@
 # Ahu cmux session host
 
-This repository packages an optional cmux backend that implements the nine
-provider-neutral operations in Ahu's public Host protocol V2 contract. The
-plugin privately owns cmux group/window/workspace inventory, task workspace
-creation, opaque session references, selection and close, metadata/status, and
-Markdown viewing. It does not replace Ahu's task records, worktree ownership,
-agent supervision, approval policy, or cleanup decisions. See [SECURITY.md](SECURITY.md)
-for the exact capability and trust inventory.
+This optional, standalone Rust plugin implements all nine provider-neutral Ahu
+Host V2 operations: task session creation, verification, selection, close, status,
+expansion, coordinator placement, agent metadata, and Markdown viewing. It owns
+cmux inventory and placement, not Ahu task records, worktrees, supervision,
+approval policy, or cleanup decisions. No ahu core dependency is linked.
 
-The implementation is a Python standard-library executable that speaks Ahu's
-length-prefixed Host protocol V2 protocol and invokes only fixed cmux CLI/RPC operations.
-It requires a working cmux installation and session. Headless and provider-free
-Ahu use remain available when this plugin is absent or disabled.
+Installation and runtime require no Python. Runtime requires Git and a working
+cmux installation/session with `workspace.groups.v1`, `workspace.group_create.v1`,
+and `workspace.create_in_group.v1`. The original Python implementation is retained
+only under `tests/oracle` as a development oracle. Headless/provider-free Ahu
+continues to work without this optional plugin.
 
+## Build and package
 
-## Runtime language policy and migration status
-
-Ahu-maintained customer-facing executables must be Rust and must not require
-Python at installation or runtime. Python is permitted for development tooling,
-tests, and fixtures only. Skills remain text, and the external CLI retains its
-own implementation.
-
-The adapters in this checkout currently use Python and do not yet meet this
-policy. Their next supported release requires Rust replacements with equivalent
-protocol behavior, security checks, and verified live integration. They remain
-external, optional plugins; migration does not move provider code into ahu core.
-
-## Install from a checkout
-
-Install ahu 0.11.0 or a compatible later version. Clone this repository at the
-reviewed release tag, then compute the package digest from that checkout:
+Use Rust/Cargo 1.88 or later (validated with Rust 1.96.0) on macOS or
+Linux. From the reviewed checkout, build explicitly with the committed lockfile,
+then stage a package in the ignored `dist` directory:
 
 ```sh
-ahu plugins digest "$(pwd -P)/package"
+export CARGO_TARGET_DIR=/tmp/ahu-rust-cmux-target
+cargo build --manifest-path package/Cargo.toml --release --locked --bin session-host
+mkdir -p dist/cmux-host/bin
+install -m 755 "$CARGO_TARGET_DIR/release/session-host" dist/cmux-host/bin/session-host
+# The installed Cargo manifest declares package identity; it is not a build hook.
+sed '/^\[\[bin\]\]/,$d' package/Cargo.toml > dist/cmux-host/Cargo.toml
+install -m 644 package/ahu-plugin.md LICENSE README.md SECURITY.md dist/cmux-host/
+ahu plugins digest "$(pwd -P)/dist/cmux-host"
 ```
 
-Use the result as the pinned revision and SHA-256 in a project plugin binding
-with `source.kind: local`, `source.repository` set to this checkout,
-`source.subdirectory: package`, `id: cmux-host`, version `0.2.0`, and
-`grants: [interactive-backend]`. Keep the binding disabled while reviewing it,
-then install and enable it using the normal Ahu plugin lifecycle. Selection and
-execution require a committed, reviewed binding. Consult Ahu's executable host
-documentation for the complete OKF binding shape and compatibility fields.
+The staging directory contains only the executable, Cargo identity, manifest,
+license, and documentation. Neither the source `package` directory nor a Cargo
+source archive is an installable binary package. Install never runs a build.
+Build separately for each OS/architecture; digest the final package **after**
+building and staging it. The commands are repeatable with the locked dependencies;
+byte-for-byte cross-toolchain/platform reproducibility is not claimed.
 
-The host process receives Ahu's fixed clean environment. This executable looks
-up cmux in common system/Homebrew locations and restores only `HOME` from the OS
-account database for CLI use; it does not read a socket path from plugin input.
-The startup command is supplied by Ahu and interpreted by cmux's interactive
-shell, so Ahu must continue to construct and shell-quote it safely.
+Use Ahu 0.11.0 or a compatible later version. Bind the staged package with
+`source.kind: local`, `source.repository` set to this checkout, and
+`source.subdirectory: dist/cmux-host`, using `id: cmux-host`, version `0.2.0`,
+and `grants: [interactive-backend]`. Pin the digest/revision returned by Ahu.
+Keep the binding disabled during review; install and enable through the normal
+Ahu plugin lifecycle. Execution requires a committed, reviewed binding. Consult
+Ahu's executable-host contract for the complete binding shape. Do not replace
+an active task's frozen package with this build.
+
+## Transport and ownership
+
+The executable accepts only `--ahu-host-protocol=2`. It uses four-byte big-endian
+length-prefixed UTF-8 JSON, at most 1 MiB per frame, exact V2 handshake capabilities,
+and sequential integer request IDs starting with hello ID 1. Duplicate JSON keys,
+unknown envelope/parameter fields, partial frames, and invalid types are rejected.
+Only EOF between frames is clean. stdout contains protocol frames only.
+
+Task references retain the `cmux2` format and original hash encoding, binding the
+exact workspace, window, and group to repository/worktree scope. Every task action
+checks inventory and repository identity again. Replacements, moved sessions,
+changed directories/groups, and ambiguous matches refuse mutations. An empty
+reference with a matching directory returns `outcome_unknown`; no match returns
+`absent`. Directory equality alone cannot recover ownership after a lost reply.
+Older directory-only references are refused.
+
+Create validates inputs and root/worktree Git identity before mutation. After a
+create command is dispatched, failed confirmation is `outcome_unknown`, including
+timeout, nonzero exit, malformed provider output, or an invalid returned identity.
+Creation is never retried. Read-only inventory may be polled to observe the result.
+The coordinator/operator must reconcile uncertain creation with provider inventory.
+
+The CLI uses fixed cmux search locations and OS-account `HOME`, preserving cmux's
+normal local authentication and selected-workspace context. It does not accept
+socket, executable, or token overrides from protocol input/environment. Startup
+commands are passed unchanged as an argv value to cmux, which interprets them in
+its interactive shell; Ahu must construct and quote them safely.
 
 ## Validate
 
 ```sh
+export CARGO_TARGET_DIR=/tmp/ahu-rust-cmux-target
+cargo fmt --manifest-path package/Cargo.toml --all --check
+cargo clippy --manifest-path package/Cargo.toml --all-targets --locked -- -D warnings
+cargo clippy --manifest-path package/Cargo.toml --no-default-features --all-targets --locked -- -D warnings
+cargo test --manifest-path package/Cargo.toml --locked
+cargo build --manifest-path package/Cargo.toml --bins --examples --locked
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 ```
 
-The unit tests use mocked RPC/CLI calls and do not modify a live cmux session.
-Live creation and close checks require a dedicated disposable repository/worktree;
-verify the returned ownership reference and remove only the workspace created by
-that run. Never use a user's existing workspace as a test target. Ahu's
-external-host fixture and lifecycle tests remain necessary for protocol and
-failure-path coverage; package tests alone do not establish live compatibility.
+Python is development-only. Tests independently encode wire frames and drive a
+compiled Rust fixture host using the same transport, domain, and subprocess code
+with explicit temporary provider paths. The shipped executable's CLI refusal
+paths are also tested. The fixture driver and fake cmux are never packaged. Tests
+use temporary Git repositories, synthetic provider state, and bounded process
+fixtures; they never invoke live cmux or mutate network providers. The oracle's
+unit tests remain separate from Rust implementation coverage.
 
-Keep the source pinned to the reviewed package digest and inspect the security
-inventory before granting session-host access.
-
-## Session ownership and recovery
-
-Task references bind the exact created workspace, window and group, together with
-the repository/worktree scope. A replacement workspace at the same path is not
-the same session. Changes to placement or ambiguous matches refuse mutations.
-If a creation reply was lost, a directory match alone is insufficient ownership
-proof: recovery reports uncertainty and requires operator reconciliation. No
-matching workspace is reported absent. See SECURITY.md for the same-user and
-concurrent-change limits. The current reference format is `cmux2`; directory-only
-references from earlier local candidates are not accepted by this package.
+Live cmux creation/close and authentication compatibility have **not** been
+validated by this migration. The coordinator must run those checks in a dedicated
+disposable repository/worktree before release, inspect the ownership reference,
+and remove only a workspace created by that run. Fixture success is not proof of
+live compatibility. See [SECURITY.md](SECURITY.md) before granting access.

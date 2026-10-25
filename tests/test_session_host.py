@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 sys.dont_write_bytecode = True
-ENTRY = pathlib.Path(__file__).parents[1] / "package/bin/session-host"
+ENTRY = pathlib.Path(__file__).parent / "oracle/session_host.py"
 spec = importlib.util.spec_from_loader("cmux_host", SourceFileLoader("cmux_host", str(ENTRY)))
 host = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(host)
