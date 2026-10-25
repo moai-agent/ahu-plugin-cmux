@@ -127,11 +127,18 @@ fn account_home() -> Result<PathBuf, Error> {
     if status != 0 || result.is_null() {
         return Err(Error::failed("OS account home unavailable"));
     }
-    // SAFETY: successful getpwuid_r initialized entry and its NUL-terminated pw_dir.
-    let bytes = unsafe { CStr::from_ptr((*result).pw_dir) }
-        .to_bytes()
-        .to_vec();
-    Ok(PathBuf::from(OsString::from_vec(bytes)))
+    // SAFETY: successful getpwuid_r initialized the caller-owned entry.
+    let directory = unsafe { (*result).pw_dir };
+    if directory.is_null() {
+        return Err(Error::failed("OS account home unavailable"));
+    }
+    // SAFETY: getpwuid_r supplies a non-null NUL-terminated string in buffer.
+    let bytes = unsafe { CStr::from_ptr(directory) }.to_bytes().to_vec();
+    let home = PathBuf::from(OsString::from_vec(bytes));
+    if !home.is_absolute() {
+        return Err(Error::failed("OS account home is not absolute"));
+    }
+    Ok(home)
 }
 fn run(
     path: &Path,
