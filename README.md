@@ -21,7 +21,10 @@ then stage a package in the ignored `dist` directory:
 ```sh
 export CARGO_TARGET_DIR=/tmp/ahu-rust-cmux-target
 cargo build --manifest-path package/Cargo.toml --release --locked --bin session-host
-mkdir -p dist/cmux-host/bin
+mkdir -p dist
+# Refuse to mix a new build with any previously staged files.
+mkdir dist/cmux-host
+mkdir dist/cmux-host/bin
 install -m 755 "$CARGO_TARGET_DIR/release/session-host" dist/cmux-host/bin/session-host
 # The installed Cargo manifest declares package identity; it is not a build hook.
 sed '/^\[\[bin\]\]/,$d' package/Cargo.toml > dist/cmux-host/Cargo.toml
@@ -38,12 +41,21 @@ byte-for-byte cross-toolchain/platform reproducibility is not claimed.
 
 Use Ahu 0.11.0 or a compatible later version. Bind the staged package with
 `source.kind: local`, `source.repository` set to this checkout, and
-`source.subdirectory: dist/cmux-host`, using `id: cmux-host`, version `0.2.0`,
+`source.subdirectory: dist/cmux-host`, using `id: cmux-host`, version `0.2.1`,
 and `grants: [interactive-backend]`. Pin the digest/revision returned by Ahu.
 Keep the binding disabled during review; install and enable through the normal
 Ahu plugin lifecycle. Execution requires a committed, reviewed binding. Consult
 Ahu's executable-host contract for the complete binding shape. Do not replace
 an active task's frozen package with this build.
+
+## Updating the Python package
+
+Version 0.2.1 replaces the 0.2.0 Python executable. Finish and remove tasks
+using the old host before changing their binding: retained task references
+freeze the original host identity. Build into a fresh staging directory, review
+and commit the new version, source path and content pins, then use
+`ahu plugins update cmux-host`. Verify installation and explicitly probe the
+selected host before assigning work. Never reuse the Python package digest.
 
 ## Transport and ownership
 
