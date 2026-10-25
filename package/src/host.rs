@@ -178,12 +178,14 @@ fn parse_reference(text: &str) -> Result<(&str, Session)> {
 pub struct Host<P> {
     provider: P,
     deadline: Instant,
+    effects_possible: bool,
 }
 impl<P: Provider> Host<P> {
     pub fn new(provider: P) -> Self {
         Self {
             provider,
             deadline: Instant::now() + Duration::from_secs(12),
+            effects_possible: false,
         }
     }
     pub(crate) fn reset_deadline(&mut self) {
@@ -199,6 +201,17 @@ impl<P: Provider> Host<P> {
     }
     fn command(&mut self, args: &[String], limit: Duration) -> Result<Vec<u8>> {
         let timeout = self.remaining(limit)?;
+        // Once a write is dispatched, any later failure in this operation may
+        // follow partial effects. A provider error does not prove rollback.
+        let read_only = matches!(
+            args.first().map(String::as_str),
+            Some("ping" | "capabilities")
+        ) || (args.first().is_some_and(|arg| arg == "rpc")
+            && matches!(
+                args.get(1).map(String::as_str),
+                Some("workspace.list" | "window.list" | "workspace.group.list")
+            ));
+        self.effects_possible |= !read_only;
         self.provider.command(args, timeout)
     }
     fn rpc(&mut self, method: &str, params: Value) -> Result<Value> {
@@ -651,6 +664,16 @@ impl<P: Provider> Host<P> {
     /// Execute one advertised operation. Unknown keys are refused before provider access.
     pub fn dispatch(&mut self, method: &str, p: &Value) -> Result<Value> {
         self.reset_deadline();
+        self.effects_possible = false;
+        self.dispatch_operation(method, p).map_err(|error| {
+            if self.effects_possible {
+                error.unknown()
+            } else {
+                error
+            }
+        })
+    }
+    fn dispatch_operation(&mut self, method: &str, p: &Value) -> Result<Value> {
         const OWN: &[&str] = &["session_ref", "repository_identity", "expected_directory"];
         match method {
             "create_task_session" => self.create(p),

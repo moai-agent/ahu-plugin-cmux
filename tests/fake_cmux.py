@@ -52,7 +52,7 @@ if args[0] == 'new-workspace':
         time.sleep(30)
     sys.exit(0)
 if args[0] == 'set-status':
-    sys.exit(0)
+    sys.exit(1 if mode == 'post-add-metadata-failure' and state.get('added') else 0)
 assert args[0] == 'rpc', args
 method, params = args[1], json.loads(args[2])
 if mode == 'duplicate-json' and method == 'workspace.list':
@@ -61,6 +61,10 @@ if mode == 'duplicate-json' and method == 'workspace.list':
 if mode == 'post-create-invalid' and any(w['id'] == 'created' for ws in state['workspaces'].values() for w in ws):
     print('not json')
     sys.exit(0)
+if mode == 'post-group-invalid' and state.get('group_created'):
+    print('not json'); sys.exit(0)
+if mode == 'post-add-invalid' and state.get('added'):
+    print('not json'); sys.exit(0)
 window = params.get('window_id') or 'win'
 if method == 'workspace.list':
     result = {'window_id': window, 'workspaces': state['workspaces'].get(window, [])}
@@ -73,8 +77,13 @@ elif method == 'workspace.group.create':
     state['groups'][window].append(group)
     state['workspaces'][window].append({'id': 'anchor', 'current_directory': params['cwd']})
     (base / 'state.json').write_text(json.dumps(state))
+    state['group_created'] = True
+    (base / 'state.json').write_text(json.dumps(state))
+    if mode == 'lost-group-create': sys.exit(1)
+    if mode == 'invalid-group-reply': print('not json'); sys.exit(0)
     result = {'group': group}
 elif method == 'workspace.group.add':
+    state['added'] = True
     for group in state['groups'][window]:
         if group['id'] == params['group_id'] and params['workspace_id'] not in group['member_workspace_ids']:
             group['member_workspace_ids'].append(params['workspace_id'])

@@ -232,6 +232,27 @@ class RustWireTests(unittest.TestCase):
         status, replies = self.run_wire([('create_task_session', self.create())])
         self.assertTrue(replies[-1]['result']['session_ref'].endswith(':created:win:g'))
 
+    def test_group_and_coordinator_partial_writes_are_unknown_without_retry(self):
+        params = {'repository_identity': self.identity, 'repository_name': 'repo', 'repository_root': str(self.repo),
+                  'label': 'repo', 'harness': 'codex', 'model': 'test', 'startup_command': 'literal command'}
+        original = copy.deepcopy(self.state)
+        for mode in ['lost-group-create', 'invalid-group-reply', 'post-group-invalid',
+                     'post-add-invalid', 'post-add-metadata-failure']:
+            with self.subTest(mode=mode):
+                self.state = copy.deepcopy(original)
+                self.state['mode'] = mode
+                if 'group' in mode:
+                    self.state['groups']['win'] = []
+                (self.base / 'calls.jsonl').unlink(missing_ok=True)
+                status, replies = self.run_wire([('place_coordinator', params), ('place_coordinator', {})])
+                self.assertEqual(status, 0)
+                self.assertEqual(replies[1]['error']['code'], 'outcome_unknown', replies)
+                # Effect uncertainty is per operation, not sticky across requests.
+                self.assertEqual(replies[2]['error']['code'], 'failed', replies)
+                writes = [c['args'][1] for c in self.calls() if c['args'][0] == 'rpc']
+                self.assertLessEqual(writes.count('workspace.group.create'), 1)
+                self.assertLessEqual(writes.count('workspace.group.add'), 1)
+
     def test_coordinator_opens_session_when_caller_belongs_to_other_group(self):
         self.state['workspaces']['win'].append({'id': 'anchor', 'current_directory': str(self.repo)})
         self.state['groups']['win'] = [
