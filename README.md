@@ -13,6 +13,19 @@ length-prefixed Host protocol V2 protocol and invokes only fixed cmux CLI/RPC op
 It requires a working cmux installation and session. Headless and provider-free
 Ahu use remain available when this plugin is absent or disabled.
 
+
+## Runtime language policy and migration status
+
+Ahu-maintained customer-facing executables must be Rust and must not require
+Python at installation or runtime. Python is permitted for development tooling,
+tests, and fixtures only. Skills remain text, and the external CLI retains its
+own implementation.
+
+The adapters in this checkout currently use Python and do not yet meet this
+policy. Their next supported release requires Rust replacements with equivalent
+protocol behavior, security checks, and verified live integration. They remain
+external, optional plugins; migration does not move provider code into ahu core.
+
 ## Install from a checkout
 
 Install ahu 0.11.0 or a compatible later version. Clone this repository at the
