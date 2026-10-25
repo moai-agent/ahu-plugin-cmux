@@ -93,8 +93,12 @@ use temporary Git repositories, synthetic provider state, and bounded process
 fixtures; they never invoke live cmux or mutate network providers. The oracle's
 unit tests remain separate from Rust implementation coverage.
 
-Live cmux creation/close and authentication compatibility have **not** been
-validated by this migration. The coordinator must run those checks in a dedicated
-disposable repository/worktree before release, inspect the ownership reference,
-and remove only a workspace created by that run. Fixture success is not proof of
-live compatibility. See [SECURITY.md](SECURITY.md) before granting access.
+A local integration check on 2026-10-25 used cmux 0.64.22, Codex CLI 0.163.0,
+and pinned Rust host/planner packages in a disposable repository. Host handshake,
+task workspace creation, actual agent MCP and shell work, task-attributed local
+OTel, and ahu task/workspace removal passed. The fixture group anchor was removed
+separately after verifying ownership; preexisting workspaces were retained.
+The Codex process used cmux's native shim, so this does not establish behavior
+without that shim or certify every native version. Other host operations have
+fixture coverage, not a claim of exhaustive live coverage.
+See [SECURITY.md](SECURITY.md) before granting access.
