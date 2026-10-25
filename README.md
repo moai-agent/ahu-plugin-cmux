@@ -50,6 +50,12 @@ an active task's frozen package with this build.
 
 ## Updating the Python package
 
+Ahu compatibility pins are exact. Set `compatibility.ahu` to the installed CLI
+version (for example, `"0.11.1"`) and `host_api: 1`. Complete and remove tasks
+that need the old package using the old CLI and binding before upgrading the
+CLI or replacing the binding. Then review and commit the new package and
+compatibility pins before installing the update.
+
 Version 0.2.1 replaces the 0.2.0 Python executable. Finish and remove tasks
 using the old host before changing their binding: retained task references
 freeze the original host identity. Build into a fresh staging directory, review
